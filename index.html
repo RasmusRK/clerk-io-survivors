@@ -84,6 +84,7 @@
   <p>Survive 15 minutes against an endless horde of the same head. Weapons fire on their own, so just keep moving.</p>
   <div id="heads"></div>
   <p class="small">Pick your role · WASD / arrows / drag to move · P to pause · M to mute</p>
+  <p id="bootError" style="display:none;color:#ff8787;max-width:560px"></p>
   <div class="cards" id="roles"></div>
   <div class="row"><button id="shopBtn">💼 Investments</button></div>
   <p id="bank"></p>
@@ -121,7 +122,20 @@
   <button id="againBtn">Back to menu</button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// if the game fails to start, say why on the menu instead of leaving it half-built
+function showBootError(msg) {
+  if (window.__booted) return;
+  const el = document.getElementById('bootError'); if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = /webgl/i.test(msg)
+    ? "⚠️ Your browser couldn't start 3D graphics (WebGL), which the game needs. Turn on hardware acceleration in your browser settings, update your graphics drivers, or try Chrome, Edge or Firefox."
+    : '⚠️ The game failed to start: ' + String(msg).replace(/</g, '&lt;') + '. Try reloading, or another browser.';
+}
+addEventListener('error', e => showBootError(e.message || 'a script failed to load'), true);
+addEventListener('unhandledrejection', e => showBootError((e.reason && e.reason.message) || String(e.reason)));
+</script>
+<script src="three.min.js"></script>
 <script src="heads.js"></script>
 <script src="cutout.js"></script>
 <script>
@@ -225,6 +239,8 @@ const TEX = {
 };
 
 // ---------- renderer / scene ----------
+const probe = document.createElement('canvas');
+if (!(probe.getContext('webgl') || probe.getContext('experimental-webgl'))) throw new Error('WebGL is not available');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
@@ -1284,6 +1300,7 @@ function frame() {
   renderer.render(scene, camera);
 }
 frame();
+window.__booted = true;
 })();
 </script>
 </body>
