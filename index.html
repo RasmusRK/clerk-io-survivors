@@ -431,6 +431,31 @@ function sfx(name, f, d, type = 'square', vol = .04, slide = 0, gap = 0.04) {
   } catch (e) { /* audio is optional */ }
 }
 
+// ---------- spitter parts ----------
+// the spitter's head is cut at the mouth so the lower half can drop open like a jaw
+const SPIT_HEAD = 0, SPIT_MOUTH = 0.645; // which photo, and where its mouth is (fraction of head height)
+function headSlice(y0, y1) {
+  const src = headCanvases[SPIT_HEAD], c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const a = Math.round(y0 * src.height), b = Math.round(y1 * src.height);
+  c.getContext('2d').drawImage(src, 0, a, src.width, b - a, 0, a, src.width, b - a);
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 4; return t;
+}
+const SPIT_TEX = {
+  top: headSlice(0, SPIT_MOUTH), jaw: headSlice(SPIT_MOUTH, 1),
+  mouth: canvasTex(128, 64, g => {
+    g.fillStyle = '#2b0608'; g.beginPath(); g.ellipse(64, 32, 60, 30, 0, 0, TAU); g.fill();
+    g.fillStyle = '#c2304a'; g.beginPath(); g.ellipse(64, 50, 32, 12, 0, 0, TAU); g.fill();
+    g.fillStyle = '#f8f4e8'; for (let i = 0; i < 6; i++) g.fillRect(28 + i * 12, 4, 9, 9);
+  }),
+  // the spitters spit 1-star reviews
+  review: canvasTex(64, 64, g => {
+    const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31);
+    gr.addColorStop(0, '#ff9a8a'); gr.addColorStop(.55, '#e8283c'); gr.addColorStop(1, 'rgba(160,0,20,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 31, 0, TAU); g.fill();
+    g.fillStyle = '#fff'; g.font = '900 22px system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('1★', 32, 33);
+  }),
+};
+
 // ---------- enemy types ----------
 const TYPES = {
   grunt:  { tex: 0, hp: 8,    speed: 2.9, size: 1.5,  dmg: 10, xp: 1 },
@@ -439,6 +464,11 @@ const TYPES = {
   brute:  { tex: 0, hp: 80,   speed: 2.6, size: 2.5,  dmg: 22, xp: 5 },
   elite:  { tex: 3, hp: 220,  speed: 2.3, size: 3.2,  dmg: 20, xp: 20, elite: true },
   boss:   { tex: 3, hp: 3000, speed: 2.6, size: 6.2,  dmg: 35, xp: 80, boss: true },
+  // late-game heads (minute 4+): keep their distance and spit, telegraph and dash, or burst into shards
+  spitter:  { tex: 0, hp: 20,  speed: 2.4, size: 1.7, dmg: 8,  xp: 3, ai: 'spit',   tint: [.8, 1, .65] },
+  charger:  { tex: 1, hp: 55,  speed: 2.3, size: 1.8, dmg: 14, xp: 4, ai: 'charge', tint: [1, .7, .65] },
+  splitter: { tex: 2, hp: 90,  speed: 1.9, size: 2.9, dmg: 16, xp: 5, split: true,  tint: [.85, .75, 1] },
+  shard:    { tex: 2, hp: 14,  speed: 3.6, size: 1.15, dmg: 7, xp: 1,               tint: [.85, .75, 1] },
 };
 
 // ---------- weapons & passives ----------
@@ -548,18 +578,19 @@ const WAVES = [
   { min: 30,  rate: 1.5, mix: { grunt: 3, runner: 2 } },
   { min: 50,  rate: 2,   mix: { grunt: 3, runner: 2, tank: 1 } },
   { min: 70,  rate: 3,   mix: { runner: 4, grunt: 1 } },
-  { min: 90,  rate: 3,   mix: { grunt: 2, tank: 2, brute: 1 } },
-  { min: 110, rate: 3.5, mix: { grunt: 3, runner: 2, brute: 1 } },
-  { min: 130, rate: 4,   mix: { tank: 3, brute: 2 } },
-  { min: 150, rate: 4.5, mix: { runner: 3, grunt: 2, brute: 1 } },
-  { min: 170, rate: 5,   mix: { brute: 2, tank: 2, runner: 1 } },
-  { min: 190, rate: 5,   mix: { grunt: 2, runner: 2, tank: 1, brute: 1 } },
-  { min: 220, rate: 6,   mix: { brute: 3, tank: 2 } },
-  { min: 250, rate: 6,   mix: { runner: 3, brute: 2 } },
-  { min: 280, rate: 7,   mix: { tank: 2, brute: 3, runner: 1 } },
-  { min: 320, rate: 8,   mix: { grunt: 2, runner: 2, tank: 2, brute: 2 } },
-  { min: 360, rate: 9,   mix: { brute: 3, tank: 3, runner: 2 } },
+  { min: 90,  rate: 3,   mix: { grunt: 2, tank: 2, brute: 1, spitter: 0.6 } },
+  { min: 110, rate: 3.5, mix: { grunt: 3, runner: 2, brute: 1, spitter: 0.6 } },
+  { min: 130, rate: 4,   mix: { tank: 3, brute: 2, spitter: 0.6, charger: 0.6 } },
+  { min: 150, rate: 4.5, mix: { runner: 3, grunt: 2, brute: 1, spitter: 0.6, charger: 0.6 } },
+  { min: 170, rate: 5,   mix: { brute: 2, tank: 2, runner: 1, charger: 0.6, splitter: 0.5 } },
+  { min: 190, rate: 5,   mix: { grunt: 2, runner: 2, tank: 1, brute: 1, spitter: 1, splitter: 0.5 } },
+  { min: 220, rate: 6,   mix: { brute: 3, tank: 2, charger: 1, splitter: 0.5 } },
+  { min: 250, rate: 6,   mix: { runner: 3, brute: 2, spitter: 1, charger: 0.6 } },
+  { min: 280, rate: 7,   mix: { tank: 2, brute: 3, runner: 1, splitter: 0.8, spitter: 0.6 } },
+  { min: 320, rate: 8,   mix: { grunt: 2, runner: 2, tank: 2, brute: 2, spitter: 1, charger: 1, splitter: 0.5 } },
+  { min: 360, rate: 9,   mix: { brute: 3, tank: 3, runner: 2, spitter: 1, charger: 1, splitter: 0.8 } },
 ];
+const TYPE_CAP = { spitter: 12, charger: 12, splitter: 10 };
 function pickType(mix) {
   let r = Math.random() * Object.values(mix).reduce((a, b) => a + b, 0);
   for (const k in mix) if ((r -= mix[k]) <= 0) return k;
@@ -568,20 +599,21 @@ function pickType(mix) {
 
 // ---------- state ----------
 let state = 'menu';
-let enemies = [], projs = [], pickups = [], effects = [], pools = [], laters = [], dnums = [];
+let enemies = [], projs = [], pickups = [], effects = [], pools = [], laters = [], dnums = [], eprojs = [];
 let runGold = 0;
 let W, worder, PS, porder, S, P, time, kills, level, xp, xpNext, pendingLevels, spawnAcc, ev, bannerT, dmgBy, role;
 const VB = { x0: -10, x1: 10, z0: -8, z1: 8, R: 24 };
 
 function clearScene() {
-  enemies.forEach(e => { scene.remove(e.s); e.mat.dispose(); });
+  enemies.forEach(despawn);
+  eprojs.forEach(p => { scene.remove(p.s); p.mat.dispose(); });
   projs.forEach(p => { scene.remove(p.s); p.mat.dispose(); });
   pickups.forEach(g => scene.remove(g.m));
   effects.forEach(f => { scene.remove(f.m); f.m.material.dispose(); });
   pools.forEach(p => { scene.remove(p.m); p.m.material.dispose(); });
   if (W) for (const id in W) (W[id].sprites || []).forEach(s => scene.remove(s));
   dnums.forEach(d => d.el.remove());
-  enemies = []; projs = []; pickups = []; effects = []; pools = []; laters = []; dnums = [];
+  enemies = []; projs = []; pickups = []; effects = []; pools = []; laters = []; dnums = []; eprojs = [];
 }
 function reset(r) {
   clearScene();
@@ -596,7 +628,8 @@ function reset(r) {
   kills = 0; level = 1; xp = 0; xpNext = 5; pendingLevels = 0; spawnAcc = 0; bannerT = 0; dmgBy = {};
   $('banner').style.opacity = 0;
   const after = (first, period) => { let t = first; while (t < time) t += period; return t; };
-  ev = { swarm: after(50, 40), wall: after(240, 150), elite: after(60, 60), boss: after(300, 300), box: 0 };
+  ev = { swarm: after(50, 40), wall: after(240, 150), elite: after(60, 60), boss: after(300, 300), box: 0,
+    intros: [[240, 'SPITTERS! Dodge their 1★ reviews'], [360, 'CHARGERS! Step out of the red line'], [480, 'SPLITTERS! They burst into shards']].filter(i => i[0] >= time) };
   addWeapon(role.weapon);
   player.position.set(0, 2, 0);
   field.visible = false;
@@ -652,9 +685,16 @@ function spawnEnemy(k, x, z) {
   if (x === undefined) { const a = rand(0, TAU), d = VB.R + rand(0, 4); x = P.x + Math.cos(a) * d; z = P.z + Math.sin(a) * d; }
   s.scale.set(size, size, 1); s.position.set(x, layer(2, z), z); scene.add(s);
   const hm = 1 + time / 90 + (time / 240) ** 2;
-  const base = T.boss ? [1, .75, .75] : T.elite ? [1, .9, .7] : [1, 1, 1];
+  const base = T.boss ? [1, .75, .75] : T.elite ? [1, .9, .7] : T.tint || [1, 1, 1];
   const e = { k, s, mat, x, z, size, hp: T.hp * hm, maxHp: T.hp * hm, speed: T.speed * rand(0.9, 1.1), dmg: T.dmg * (1 + time / 600),
-    xp: T.xp, elite: !!T.elite, boss: !!T.boss, base, flash: 0, kbx: 0, kbz: 0, dying: 0, dead: false, ph: rand(0, TAU), cd: {}, dir: 1 };
+    xp: T.xp, elite: !!T.elite, boss: !!T.boss, base, flash: 0, kbx: 0, kbz: 0, dying: 0, dead: false, ph: rand(0, TAU), cd: {}, dir: 1,
+    ai: T.ai, split: T.split, mode: 'walk', t: 0, cdS: rand(1, 2.5), open: 0, shake: 0 };
+  if (T.ai === 'spit') { // upper head, a dropping jaw, and the mouth hole between them
+    mat.map = SPIT_TEX.top;
+    e.hole = new THREE.Sprite(new THREE.SpriteMaterial({ map: SPIT_TEX.mouth })); e.hole.visible = false;
+    e.jaw = new THREE.Sprite(new THREE.SpriteMaterial({ map: SPIT_TEX.jaw }));
+    scene.add(e.hole, e.jaw);
+  }
   enemies.push(e); return e;
 }
 function spawnBox() {
@@ -664,7 +704,76 @@ function spawnBox() {
   s.scale.set(1.1, 1.1, 1); s.position.set(x, layer(2, z), z); scene.add(s);
   enemies.push({ k: 'box', box: true, s, mat, x, z, size: 1.1, hp: 1, maxHp: 1, speed: 0, dmg: 0, xp: 0, base: [1, 1, 1], flash: 0, kbx: 0, kbz: 0, dying: 0, dead: false, ph: 0, cd: {}, dir: 1 });
 }
-function despawn(e) { e.dead = true; scene.remove(e.s); e.mat.dispose(); }
+function despawn(e) {
+  e.dead = true; scene.remove(e.s); e.mat.dispose();
+  for (const p of [e.jaw, e.hole]) if (p) { scene.remove(p); p.material.dispose(); }
+}
+
+// ---------- late-game head behaviour ----------
+// each returns the head's velocity for this frame
+const AI = {
+  spit(e, dx, dz, d, dt) {
+    e.t -= dt;
+    if (e.mode === 'wind') { // jaw creeps open while the head trembles, then it spits
+      e.open = Math.min(1, e.open + dt / 0.5); e.shake = 0.05;
+      if (e.t <= 0) { spit(e); e.mode = 'recover'; e.t = 0.45; e.shake = 0; }
+      return [0, 0];
+    }
+    if (e.mode === 'recover') {
+      e.open = Math.max(0, e.t / 0.45);
+      if (e.t <= 0) { e.mode = 'walk'; e.cdS = rand(3, 4.5); e.open = 0; }
+      return [0, 0];
+    }
+    e.cdS -= dt;
+    if (e.cdS <= 0 && d < 11 && onScreen(e) && eprojs.length < 6) { e.mode = 'wind'; e.t = 0.6; sfx('gulp', 180, .3, 'sine', .03, 160, .1); return [0, 0]; }
+    const want = d > 7.5 ? 1 : d < 5 ? -0.7 : 0; // hang back at spitting range
+    return [dx / d * e.speed * want, dz / d * e.speed * want];
+  },
+  charge(e, dx, dz, d, dt) {
+    e.t -= dt;
+    if (e.mode === 'wind') { e.shake = 0.06 + (0.7 - e.t) * 0.12; if (e.t <= 0) { e.mode = 'dash'; e.t = 0.5; e.shake = 0; sfx('dash', 120, .3, 'sawtooth', .04, 240, .1); } return [0, 0]; }
+    if (e.mode === 'dash') { if (e.t <= 0) { e.mode = 'rest'; e.t = 0.6; } return [e.lx * 13, e.lz * 13]; }
+    if (e.mode === 'rest') { if (e.t <= 0) { e.mode = 'walk'; e.cdS = rand(2, 3.5); } return [0, 0]; }
+    e.cdS -= dt;
+    if (e.cdS <= 0 && d < 9 && onScreen(e)) { // lock on, and paint the dash path on the ground
+      e.mode = 'wind'; e.t = 0.7; e.lx = dx / d; e.lz = dz / d;
+      const len = 13 * 0.5 + e.size, m = new THREE.Mesh(flatGeo, new THREE.MeshBasicMaterial({ color: 0xff2d45, transparent: true, depthWrite: false }));
+      m.position.set(e.x + e.lx * len / 2, 0.05, e.z + e.lz * len / 2); m.rotation.y = -Math.atan2(e.lz, e.lx);
+      m.scale.set(len, 1, e.size * 0.55); addEffect(m, 0.7, { op: 0.35 });
+      return [0, 0];
+    }
+    return [dx / d * e.speed, dz / d * e.speed];
+  },
+};
+function spit(e) {
+  const mx = e.x, mz = e.z + (SPIT_MOUTH - 0.5) * e.size + e.size * 0.15;
+  const dx = P.x - mx, dz = P.z - mz, a = Math.atan2(dz, dx), n = time > 600 ? 3 : 1;
+  for (let i = 0; i < n; i++) {
+    const ai = a + (i - (n - 1) / 2) * 0.28, mat = new THREE.SpriteMaterial({ map: SPIT_TEX.review }), s = new THREE.Sprite(mat);
+    s.scale.set(0.85, 0.85, 1); s.position.set(mx, 3.8, mz); scene.add(s);
+    eprojs.push({ s, mat, x: mx, z: mz, vx: Math.cos(ai) * 7.5, vz: Math.sin(ai) * 7.5, dmg: 9 * (1 + time / 600), life: 4 });
+  }
+  sfx('spit', 520, .18, 'square', .035, -380, .08);
+}
+function updateEProjs(dt) {
+  for (const p of eprojs) {
+    p.x += p.vx * dt; p.z += p.vz * dt; p.life -= dt;
+    p.mat.rotation += dt * 5; p.s.position.set(p.x, 3.8, p.z);
+    if (Math.random() < 0.4) {
+      const t = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.trail, color: 0xff4050, transparent: true, depthWrite: false }));
+      t.position.set(p.x, 3.7, p.z); t.scale.set(.45, .45, 1); addEffect(t, 0.25);
+    }
+    if (Math.hypot(P.x - p.x, P.z - p.z) < 0.6) {
+      if (P.iframe <= 0) {
+        P.hp -= Math.max(1, p.dmg - S.armor); P.iframe = 0.4; sfx('hurt', 160, .2, 'square', .06, -80, .1);
+        if (DEBUG) { const tk = window.__taken = window.__taken || {}; tk.spit = (tk.spit || 0) + Math.max(1, p.dmg - S.armor); }
+      }
+      p.life = 0;
+    }
+    if (p.life <= 0) { scene.remove(p.s); p.mat.dispose(); p.dead = true; }
+  }
+  eprojs = eprojs.filter(p => !p.dead);
+}
 const canHit = (e, wid, cd) => { if ((e.cd[wid] || 0) > time) return false; e.cd[wid] = time + cd; return true; };
 
 function hurt(e, dmg, wid, dx, dz, kb = 4) {
@@ -688,6 +797,10 @@ function kill(e) {
   sfx('kill', 300, .12, 'triangle', .035, -220, .05);
   dropGem(e.x, e.z, e.xp * (1 + time / 300));
   if (Math.random() < 0.0015 && !pickups.some(g => g.kind === 'deal')) dropItem(e.x + 0.6, e.z, 'deal');
+  if (e.split) for (let i = 0; i < 3; i++) {
+    const a = i / 3 * TAU + rand(0, 1), sh = spawnEnemy('shard', e.x + Math.cos(a) * 0.6, e.z + Math.sin(a) * 0.6);
+    if (sh) { sh.kbx = Math.cos(a) * 9; sh.kbz = Math.sin(a) * 9; }
+  }
   if (e.elite) dropItem(e.x, e.z, 'chest', 1);
   if (e.boss) { dropItem(e.x, e.z, 'chest', 3); for (let i = 0; i < 10; i++) dropGem(e.x + rand(-2.5, 2.5), e.z + rand(-2.5, 2.5), 10); }
 }
@@ -1137,6 +1250,12 @@ let autopilot = false, wander = [1, 0], wanderT = 0;
 function botDir() {
   let vx = 0, vz = 0;
   query(P.x, P.z, 3, e => { if (e.box) return; const dx = P.x - e.x, dz = P.z - e.z, d2 = dx * dx + dz * dz + .1; vx += dx / d2 * e.size * 3; vz += dz / d2 * e.size * 3; });
+  for (const p of eprojs) { // sidestep spit heading this way
+    const dx = P.x - p.x, dz = P.z - p.z, d2 = dx * dx + dz * dz;
+    if (d2 > 9 || dx * p.vx + dz * p.vz < 0) continue;
+    const l = Math.hypot(p.vx, p.vz) || 1, px = -p.vz / l, pz = p.vx / l, side = dx * px + dz * pz >= 0 ? 1 : -1;
+    vx += px * side * 4 / (d2 + .5); vz += pz * side * 4 / (d2 + .5);
+  }
   if ((wanderT -= 1 / 30) <= 0) { const a = rand(0, TAU); wander = [Math.cos(a), Math.sin(a)]; wanderT = 2.5; }
   vx += wander[0] * .3; vz += wander[1] * .3;
   let best = null, bd = 1e9;
@@ -1167,12 +1286,16 @@ function update(dt) {
 
   // spawning & events
   const wave = WAVES[Math.min(WAVES.length - 1, Math.floor(time / 60))];
-  let alive = 0; for (const e of enemies) if (!e.dying && !e.box) alive++;
+  let alive = 0; const byType = {};
+  for (const e of enemies) if (!e.dying && !e.box) { alive++; byType[e.k] = (byType[e.k] || 0) + 1; }
   spawnAcc += dt * wave.rate;
   let toSpawn = Math.floor(spawnAcc) + Math.min(10, Math.max(0, wave.min - alive));
   spawnAcc -= Math.floor(spawnAcc);
   while (toSpawn-- > 0) {
-    spawnEnemy(pickType(wave.mix));
+    let k = pickType(wave.mix);
+    if ((byType[k] || 0) >= (TYPE_CAP[k] || Infinity)) k = 'grunt'; // keep the special heads from piling up
+    byType[k] = (byType[k] || 0) + 1;
+    spawnEnemy(k);
   }
   if (time >= ev.swarm) { // a herd of runners crossing the screen in a straight line
     ev.swarm += 40;
@@ -1192,6 +1315,7 @@ function update(dt) {
   }
   if (time >= ev.boss) { ev.boss += 300; ev.elite = Math.max(ev.elite, time + 20); spawnEnemy('boss'); banner('THE BIG HEAD APPROACHES'); sfx('boss', 90, 1, 'sawtooth', .07, 60, 0); }
   if (time >= ev.elite) { ev.elite += 60; spawnEnemy('elite'); banner('An elite head appears'); }
+  if (ev.intros.length && time >= ev.intros[0][0]) banner(ev.intros.shift()[1]);
   if (time >= ev.box) { ev.box = time + 4; if (enemies.filter(e => e.box).length < 5) spawnBox(); }
 
   buildGrid();
@@ -1203,6 +1327,7 @@ function update(dt) {
       e.dying -= dt;
       const k = Math.max(0, e.dying / 0.3), sz = e.size * (1 + (1 - k) * 0.7);
       e.s.scale.set(sz * e.dir, sz, 1); e.mat.opacity = k; e.mat.rotation += dt * 14;
+      if (e.jaw) { e.jaw.scale.copy(e.s.scale); e.jaw.position.copy(e.s.position); e.jaw.material.opacity = k; e.jaw.material.rotation = e.mat.rotation; e.hole.visible = false; }
       if (e.dying <= 0) despawn(e);
       continue;
     }
@@ -1222,19 +1347,30 @@ function update(dt) {
         const ox = e.x - o.x, oz = e.z - o.z, dd = ox * ox + oz * oz, min = (e.size + o.size) * 0.36;
         if (dd < min * min && dd > 1e-6) { const dl = Math.sqrt(dd), p = (min - dl) / min * (2 * o.size / (e.size + o.size)); sx += ox / dl * p; sz += oz / dl * p; }
       });
-      e.x += (dx / d * e.speed + sx * 4 + e.kbx) * dt;
-      e.z += (dz / d * e.speed + sz * 4 + e.kbz) * dt;
+      const [mvx, mvz] = e.ai ? AI[e.ai](e, dx, dz, d, dt) : [dx / d * e.speed, dz / d * e.speed];
+      e.x += (mvx + sx * 4 + e.kbx) * dt;
+      e.z += (mvz + sz * 4 + e.kbz) * dt;
       e.dir = dx < 0 ? -1 : 1;
     }
     const decay = Math.exp(-9 * dt); e.kbx *= decay; e.kbz *= decay;
     e.flash -= dt;
     if (e.flash > 0) e.mat.color.setScalar(3); else e.mat.color.setRGB(e.base[0], e.base[1], e.base[2]);
-    e.mat.rotation = Math.sin(time * 5 + e.ph) * 0.15;
-    const pulse = e.elite || e.boss ? 1 + Math.sin(time * 4) * 0.04 : 1;
+    e.mat.rotation = e.mode === 'walk' ? Math.sin(time * 5 + e.ph) * 0.15 : 0;
+    if (e.mode === 'wind' && e.ai === 'charge' && Math.floor(time * 12) % 2) e.mat.color.setRGB(1, .25, .25); // angry flashing before a dash
+    const pulse = (e.elite || e.boss ? 1 + Math.sin(time * 4) * 0.04 : 1) * (1 + e.open * 0.1);
+    const jx = e.shake ? rand(-1, 1) * e.shake : 0, jz = e.shake ? rand(-1, 1) * e.shake : 0;
     e.s.scale.set(e.size * pulse * e.dir, e.size * pulse, 1);
-    e.s.position.set(e.x, layer(2, e.z), e.z - Math.abs(Math.sin(time * 6 + e.ph)) * 0.2);
+    e.s.position.set(e.x + jx, layer(2, e.z), e.z + jz - (e.mode === 'walk' ? Math.abs(Math.sin(time * 6 + e.ph)) * 0.2 : 0));
+    if (e.jaw) { // jaw drops below the cut line and the dark mouth shows in the gap
+      const drop = e.open * e.size * 0.3, cut = e.s.position.z + (SPIT_MOUTH - 0.5) * e.size * pulse;
+      e.jaw.scale.copy(e.s.scale); e.jaw.position.set(e.s.position.x, e.s.position.y + 0.002, e.s.position.z + drop);
+      e.jaw.material.color.copy(e.mat.color); e.jaw.material.rotation = e.mat.rotation;
+      e.hole.visible = e.open > 0.02;
+      e.hole.scale.set(e.size * 0.42 * pulse, drop + e.size * 0.06, 1); e.hole.position.set(e.s.position.x, e.s.position.y - 0.002, cut + drop / 2);
+    }
     if (d < e.size * 0.38 + 0.45 && P.iframe <= 0) {
       P.hp -= Math.max(1, e.dmg - S.armor); P.iframe = 0.4;
+      if (DEBUG) { const tk = window.__taken = window.__taken || {}; tk[e.k] = (tk[e.k] || 0) + Math.max(1, e.dmg - S.armor); }
       sfx('hurt', 160, .2, 'square', .06, -80, .1);
     }
     if (si < MAX_ENEMIES + 50) {
@@ -1250,6 +1386,7 @@ function update(dt) {
   for (const id of worder) TICK[id](W[id], dt);
   updateProjs(dt);
   updatePools(dt);
+  updateEProjs(dt);
 
   // pickups
   for (const g of pickups) {
@@ -1284,7 +1421,7 @@ function update(dt) {
   // effects
   for (const f of effects) {
     f.life -= dt;
-    f.m.material.opacity = Math.max(0, f.life / f.max);
+    f.m.material.opacity = Math.max(0, f.life / f.max) * (f.op || 1);
     if (f.grow) f.m.scale.multiplyScalar(1 + f.grow * dt);
     if (f.life <= 0) { scene.remove(f.m); f.m.material.dispose(); f.dead = true; }
   }
@@ -1341,7 +1478,10 @@ if (DEBUG) window.__dbg = {
   chest(n) { dropItem(P.x + 0.3, P.z, 'chest', n); },
   deal(dx = 3) { dropItem(P.x + dx, P.z, 'deal'); },
   get playerFrames() { return playerFrames.map(t => t.image); },
-  peek() { return { P: [P.x, P.z, P.hp], VB: { ...VB }, e: enemies.slice(0, 3).map(e => [e.x, e.z, e.hp, e.dying]), W: worder.map(id => [id, W[id].t]), laters: laters.length, projs: projs.length }; },
+  peek() { return { P: [P.x, P.z, P.hp], VB: { ...VB }, e: enemies.slice(0, 3).map(e => [e.x, e.z, e.hp, e.dying]), ai: enemies.filter(e => e.ai && !e.dying).map(e => [e.k, e.mode, +e.open.toFixed(2)]), eprojs: eprojs.length, kinds: enemies.filter(e => !e.dying).reduce((m, e) => (m[e.k] = (m[e.k] || 0) + 1, m), {}), W: worder.map(id => [id, W[id].t]), laters: laters.length, projs: projs.length }; },
+  spawn(k, dx = 5, dz = 0) { return !!spawnEnemy(k, P.x + dx, P.z + dz); },
+  freeze(on = true) { state = on ? 'frozen' : 'play'; },
+  camZoom(z) { camera.zoom = z; camera.updateProjectionMatrix(); },
   get audio() { return actx ? actx.state : 'not created'; },
   get enemies() { return enemies.length; }, get pickups() { return pickups.length; }, get xp() { return xp + "/" + xpNext; },
 };
