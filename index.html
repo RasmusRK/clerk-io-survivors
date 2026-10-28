@@ -128,7 +128,7 @@
 </div>
 
 <div id="over" class="overlay">
-  <h1 id="overTitle">YOU'RE FIRED!</h1>
+  <h1 id="overTitle">YOU LOST</h1>
   <p id="overStats"></p>
   <table id="results"></table>
   <button id="againBtn">Back to menu</button>
@@ -1237,8 +1237,8 @@ function endGame(won) {
   try { best = +localStorage.getItem('clerk-surv-best') || 0; if (time > best) { best = time; localStorage.setItem('clerk-surv-best', time); } } catch (e) {}
   const earned = Math.floor(runGold);
   meta.gold += earned; saveMeta();
-  $('overTitle').textContent = won ? 'QUARTER CLOSED! 🎉' : "YOU'RE FIRED!";
-  $('overStats').innerHTML = `${won ? 'You survived the full 15 minutes!' : `📦 Please clear your desk by end of day.<br>Survived <b>${fmt(time)}</b>`} · ${kills} heads converted · level ${level}<br><b style="color:#ffd43b">+💰 ${earned.toLocaleString()} revenue banked</b> <span class="small">(spend it on Investments)</span><br><span class="small">Best: ${fmt(Math.max(best, time))}</span>`;
+  $('overTitle').textContent = won ? 'QUARTER CLOSED! 🎉' : 'YOU LOST';
+  $('overStats').innerHTML = `${won ? 'You survived the full 15 minutes!' : `Survived <b>${fmt(time)}</b>`} · ${kills} heads converted · level ${level}<br><b style="color:#ffd43b">+💰 ${earned.toLocaleString()} revenue banked</b> <span class="small">(spend it on Investments)</span><br><span class="small">Best: ${fmt(Math.max(best, time))}</span>`;
   $('results').innerHTML = '<tr><td></td><td><b>Weapon</b></td><td class="n"><b>Damage</b></td></tr>' +
     worder.map(id => `<tr><td>${WEAPONS[id].icon}</td><td>${wname(id)} <span class="small">${W[id].evo ? '★' : 'Lv' + W[id].lv}</span></td><td class="n">${Math.round(dmgBy[id] || 0).toLocaleString()}</td></tr>`).join('');
   $('over').classList.add('show');
