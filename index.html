@@ -502,9 +502,9 @@ const WEAPONS = {
   chat:     { icon: '💬', name: 'Clerk Chat', desc: 'Chat bubbles that bounce around the screen.',
               info: L => `${10 + 4 * L} dmg · ${1 + Math.floor((L - 1) / 3)} bubble(s)`,
               evo: '24/7 Support', evoWith: 'feed', evoDesc: 'Big bubbles that never seem to leave.' },
-  logo:     { icon: LOGO_ICON, name: 'Logo Missile', desc: 'Fires magic Clerk.io logos that seek out the nearest heads.',
-              info: L => `${12 + 4 * L} dmg · ${1 + Math.floor((L - 1) / 2)} missile(s)${L >= 4 ? ' · pierce ' + Math.floor(L / 4) : ''}`,
-              evo: 'Brand Awareness', evoWith: 'uptime', evoDesc: 'Logos burst out in every direction, over and over.' },
+  logo:     { icon: LOGO_ICON, name: 'Logo Missile', desc: 'Fires Clerk.io logos at the nearest heads that pierce straight through everything in their path.',
+              info: L => `${12 + 4 * L} dmg · ${1 + Math.floor((L - 1) / 2)} missile(s) · pierces every head`,
+              evo: 'Brand Awareness', evoWith: 'uptime', evoDesc: 'Piercing logos burst out in every direction, over and over.' },
 };
 const PASSIVES = {
   conv:      { icon: '📈', name: 'Conversion Rate', max: 5, desc: '+10% damage.', apply: () => { S.might += .1; } },
@@ -1017,9 +1017,9 @@ const TICK = {
   },
   logo(w, dt) {
     if ((w.t -= dt) > 0) return;
-    const dmg = (12 + 4 * w.lv) * (w.evo ? 1.2 : 1), pierce = Math.floor(w.lv / 4) + (w.evo ? 1 : 0);
-    const fire = (dx, dz, target) => shoot({ wid: 'logo', tex: TEX.logo, size: 1, x: P.x, z: P.z, vx: dx * 18, vz: dz * 18, target, homing: 4,
-      faceVel: true, rot: screenAngle(dx, dz) - Math.PI / 4, trail: true, dmg, pierce, life: 1.6 });
+    const dmg = (12 + 4 * w.lv) * (w.evo ? 1.2 : 1), pierce = 999; // logos fly straight through every head they meet
+    const fire = (dx, dz) => shoot({ wid: 'logo', tex: TEX.logo, size: 1, x: P.x, z: P.z, vx: dx * 20, vz: dz * 20,
+      faceVel: true, rot: screenAngle(dx, dz) - Math.PI / 4, trail: true, dmg, pierce, life: 1.4 });
     if (w.evo) {
       w.t = 0.9 * S.cdr;
       const m = 8 + S.amount * 2;
@@ -1030,7 +1030,7 @@ const TICK = {
       w.t = (1.0 - 0.05 * w.lv) * S.cdr;
       for (let i = 0; i < n; i++) later(i * 0.09, () => {
         const t = targets[i % targets.length], dx = t.x - P.x, dz = t.z - P.z, l = Math.hypot(dx, dz) || 1;
-        fire(dx / l, dz / l, t.dying ? null : t);
+        fire(dx / l, dz / l);
       });
     }
     sfx('logo', 990, .09, 'sine', .03, 500, .05);
