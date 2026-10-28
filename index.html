@@ -1332,7 +1332,12 @@ function update(dt) {
       continue;
     }
     const dx = P.x - e.x, dz = P.z - e.z, d = Math.hypot(dx, dz) || 1;
-    if (e.box) { if (d > 70) despawn(e); else { e.flash -= dt; e.mat.color.setScalar(e.flash > 0 ? 3 : 1); } continue; }
+    if (e.box) {
+      if (d > 70) despawn(e);
+      else if (d < 0.6 + e.size * 0.4) { kill(e); sfx('crate', 240, .15, 'square', .04, -140, .05); } // walk into a parcel to break it open
+      else { e.flash -= dt; e.mat.color.setScalar(e.flash > 0 ? 3 : 1); }
+      continue;
+    }
     if (e.straight) {
       e.age += dt; e.x += e.vx * dt; e.z += e.vz * dt;
       if (e.age > 4 && d > VB.R + 6) { despawn(e); continue; }
@@ -1478,9 +1483,10 @@ if (DEBUG) window.__dbg = {
   chest(n) { dropItem(P.x + 0.3, P.z, 'chest', n); },
   deal(dx = 3) { dropItem(P.x + dx, P.z, 'deal'); },
   get playerFrames() { return playerFrames.map(t => t.image); },
-  peek() { return { P: [P.x, P.z, P.hp], VB: { ...VB }, e: enemies.slice(0, 3).map(e => [e.x, e.z, e.hp, e.dying]), ai: enemies.filter(e => e.ai && !e.dying).map(e => [e.k, e.mode, +e.open.toFixed(2)]), eprojs: eprojs.length, kinds: enemies.filter(e => !e.dying).reduce((m, e) => (m[e.k] = (m[e.k] || 0) + 1, m), {}), W: worder.map(id => [id, W[id].t]), laters: laters.length, projs: projs.length }; },
+  peek() { return { P: [P.x, P.z, P.hp], VB: { ...VB }, e: enemies.slice(0, 3).map(e => [e.x, e.z, e.hp, e.dying]), ai: enemies.filter(e => e.ai && !e.dying).map(e => [e.k, e.mode, +e.open.toFixed(2)]), eprojs: eprojs.length, boxes: enemies.filter(e => e.box && !e.dying).map(e => [+(e.x - P.x).toFixed(1), +(e.z - P.z).toFixed(1)]), kinds: enemies.filter(e => !e.dying).reduce((m, e) => (m[e.k] = (m[e.k] || 0) + 1, m), {}), W: worder.map(id => [id, W[id].t]), laters: laters.length, projs: projs.length }; },
   spawn(k, dx = 5, dz = 0) { return !!spawnEnemy(k, P.x + dx, P.z + dz); },
   freeze(on = true) { state = on ? 'frozen' : 'play'; },
+  box(dx = 3, dz = 0) { spawnBox(); const b = enemies[enemies.length - 1]; b.x = P.x + dx; b.z = P.z + dz; },
   camZoom(z) { camera.zoom = z; camera.updateProjectionMatrix(); },
   get audio() { return actx ? actx.state : 'not created'; },
   get enemies() { return enemies.length; }, get pickups() { return pickups.length; }, get xp() { return xp + "/" + xpNext; },
