@@ -61,8 +61,18 @@
   table{border-collapse:collapse;margin:10px auto;font-size:14px}
   td{padding:4px 10px;text-align:left;border-bottom:1px solid #263048}
   td.n{text-align:right;font-variant-numeric:tabular-nums}
-  #build{margin:8px 0;font-size:14px;color:#cfd6e6;max-width:640px}
-  #build span{display:inline-block;margin:3px 6px}
+  #build{margin:8px 0;max-width:680px}
+  #build h3{margin:14px 0 8px;font-size:13px;letter-spacing:1px;color:#7d889e;text-transform:uppercase}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+  .chip{position:relative;display:flex;align-items:center;gap:6px;background:#1b2030;border:1px solid #3a4560;border-radius:8px;padding:6px 10px;font-size:14px;color:#cfd6e6;cursor:help;outline:none}
+  .chip:hover,.chip:focus{border-color:#a48cff}
+  .chip.evo{border-color:#ffd43b}
+  .chip .tip{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:240px;max-width:80vw;background:#0f1320;border:1px solid #a48cff;border-radius:10px;padding:10px 12px;text-align:left;font-size:13px;line-height:1.45;color:#cfd6e6;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+  .chip:hover .tip,.chip:focus .tip{display:block}
+  .tip .tl{color:#a48cff;font-weight:800;font-size:11px;letter-spacing:.5px}
+  .tip .tn{color:#fff;font-weight:800;font-size:15px;margin:2px 0 4px}
+  .tip .ts{color:#ffd43b;margin-top:6px}
+  .tip .te{color:#7d889e;font-size:12px;margin-top:6px}
 </style>
 </head>
 <body>
@@ -103,8 +113,9 @@
 
 <div id="pause" class="overlay">
   <h2>Paused</h2>
+  <p class="small">Hover over (or tap) a skill to see what it does</p>
   <div id="build"></div>
-  <button id="resumeBtn">Resume</button>
+  <div class="row"><button id="resumeBtn">Resume</button><button id="soundBtn" class="ghost"></button></div>
 </div>
 
 <div id="shop" class="overlay">
@@ -382,20 +393,41 @@ field.add(new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 64).rotateX(-Math.PI / 
 field.position.y = 0.03; scene.add(field);
 
 // ---------- audio ----------
-let actx = null, muted = false;
+let actx = null, master = null, muted = false;
+try { muted = localStorage.getItem('clerk-surv-muted') === '1'; } catch (e) {}
+function setMuted(m) { muted = m; try { localStorage.setItem('clerk-surv-muted', m ? '1' : '0'); } catch (e) {} }
 const lastSfx = {};
+// one shared audio context with a compressor, so many sounds at once don't clip
+function audio() {
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    actx = new AC();
+    const comp = actx.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 6;
+    master = actx.createGain(); master.gain.value = 0.9;
+    master.connect(comp).connect(actx.destination);
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+// browsers only allow sound after the player clicks or presses a key, so unlock it on the first one
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, () => { try { audio(); } catch (e) {} }, { passive: true }));
 function sfx(name, f, d, type = 'square', vol = .04, slide = 0, gap = 0.04) {
   if (muted) return;
   try {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    const now = actx.currentTime;
+    const ac = audio();
+    if (!ac || ac.state !== 'running') return;
+    const now = ac.currentTime;
     if (lastSfx[name] && now - lastSfx[name] < gap) return;
     lastSfx[name] = now;
-    const o = actx.createOscillator(), g = actx.createGain();
+    d = Math.max(d, 0.08);
+    const peak = Math.min(0.45, vol * 4); // short blips need a lot more level to be heard on laptop speakers
+    const o = ac.createOscillator(), g = ac.createGain();
     o.type = type; o.frequency.setValueAtTime(f, now);
     if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), now + d);
-    g.gain.setValueAtTime(vol, now); g.gain.exponentialRampToValueAtTime(0.0001, now + d);
-    o.connect(g).connect(actx.destination); o.start(now); o.stop(now + d);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(peak, now + 0.008);
+    g.gain.setValueAtTime(peak, now + d * 0.35); g.gain.exponentialRampToValueAtTime(0.0001, now + d);
+    o.connect(g).connect(master); o.start(now); o.stop(now + d + 0.02);
   } catch (e) { /* audio is optional */ }
 }
 
@@ -1018,7 +1050,7 @@ addEventListener('keydown', e => {
   else if (state === 'chest' && (e.code === 'Enter' || e.code === 'Space')) closeChest();
   else if (state === 'menu' && /^Digit[1-5]$/.test(e.code)) start(ROLES[+e.code.slice(5) - 1]);
   else if ((e.code === 'KeyP' || e.code === 'Escape') && (state === 'play' || state === 'paused')) togglePause();
-  if (e.code === 'KeyM') muted = !muted;
+  if (e.code === 'KeyM') { setMuted(!muted); if (state === 'paused') renderBuild(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (state === 'play' && !DEBUG) togglePause(); });
@@ -1029,12 +1061,27 @@ addEventListener('pointermove', e => {
   dragVec = l < 8 ? { x: 0, z: 0 } : { x: dx / l * Math.min(1, l / 50), z: dy / l * Math.min(1, l / 50) };
 });
 addEventListener('pointerup', () => { drag = null; dragVec = { x: 0, z: 0 }; });
+// pause screen: one chip per skill, with a tooltip saying what it does right now
+function renderBuild() {
+  const chip = (cls, label, tip) => `<div class="chip${cls}" tabindex="0">${label}<div class="tip">${tip}</div></div>`;
+  const weps = worder.map(id => {
+    const d = WEAPONS[id], w = W[id], p = PASSIVES[d.evoWith];
+    const evoLine = w.evo ? '' : `<div class="te">Evolves into ${d.evo} at level ${MAX_WLV} with ${p.icon} ${p.name}${PS[d.evoWith] ? ' (owned ✓)' : ''}, then open a chest.</div>`;
+    return chip(w.evo ? ' evo' : '', `${d.icon} ${wname(id)} <b>${w.evo ? '★' : 'Lv' + w.lv}</b>`,
+      `<div class="tl">${w.evo ? 'EVOLVED' : `WEAPON · LEVEL ${w.lv} / ${MAX_WLV}`}</div><div class="tn">${d.icon} ${wname(id)}</div>${w.evo ? d.evoDesc : d.desc}<div class="ts">${d.info(w.lv)}</div>${evoLine}`);
+  }).join('');
+  const pass = porder.map(id => {
+    const d = PASSIVES[id], evolves = Object.keys(WEAPONS).filter(wid => WEAPONS[wid].evoWith === id);
+    const evoLine = evolves.length ? `<div class="te">Needed to evolve ${evolves.map(wid => WEAPONS[wid].icon + ' ' + WEAPONS[wid].name).join(', ')}.</div>` : '';
+    return chip('', `${d.icon} ${d.name} <b>Lv${PS[id]}</b>`,
+      `<div class="tl">UPGRADE · LEVEL ${PS[id]} / ${d.max}</div><div class="tn">${d.icon} ${d.name}</div>Each level: ${d.desc}${evoLine}`);
+  }).join('');
+  $('build').innerHTML = `<h3>Weapons</h3><div class="chips">${weps}</div>` + (pass ? `<h3>Upgrades</h3><div class="chips">${pass}</div>` : '');
+  $('soundBtn').textContent = muted ? '🔇 Sound off' : '🔊 Sound on';
+}
 function togglePause() {
   state = state === 'play' ? 'paused' : 'play';
-  if (state === 'paused') {
-    $('build').innerHTML = worder.map(id => `<span>${WEAPONS[id].icon} ${wname(id)} <b>${W[id].evo ? '★' : 'Lv' + W[id].lv}</b></span>`).join('') + '<br>' +
-      porder.map(id => `<span>${PASSIVES[id].icon} ${PASSIVES[id].name} <b>Lv${PS[id]}</b></span>`).join('');
-  }
+  if (state === 'paused') renderBuild();
   $('pause').classList.toggle('show', state === 'paused');
 }
 ROLES.forEach((r, i) => {
@@ -1044,6 +1091,17 @@ ROLES.forEach((r, i) => {
 });
 $('againBtn').onclick = () => { renderBank(); $('over').classList.remove('show'); $('menu').classList.add('show'); $('hud').style.display = 'none'; state = 'menu'; };
 $('resumeBtn').onclick = togglePause;
+$('soundBtn').onclick = () => { setMuted(!muted); renderBuild(); };
+// keep a skill tooltip inside the screen when its chip sits near an edge
+function fitTip(e) {
+  const chip = e.target.closest && e.target.closest('.chip'); if (!chip) return;
+  const tip = chip.querySelector('.tip'); tip.style.transform = 'translateX(-50%)';
+  const r = tip.getBoundingClientRect(), pad = 8;
+  const shift = r.left < pad ? pad - r.left : r.right > innerWidth - pad ? innerWidth - pad - r.right : 0;
+  tip.style.transform = `translateX(calc(-50% + ${shift}px))`;
+}
+$('build').addEventListener('mouseover', fitTip);
+$('build').addEventListener('focusin', fitTip);
 $('chestBtn').onclick = closeChest;
 $('shopBtn').onclick = () => { renderShop(); $('menu').classList.remove('show'); $('shop').classList.add('show'); state = 'shop'; };
 $('shopBack').onclick = () => { $('shop').classList.remove('show'); $('menu').classList.add('show'); state = 'menu'; renderBank(); };
@@ -1284,6 +1342,7 @@ if (DEBUG) window.__dbg = {
   deal(dx = 3) { dropItem(P.x + dx, P.z, 'deal'); },
   get playerFrames() { return playerFrames.map(t => t.image); },
   peek() { return { P: [P.x, P.z, P.hp], VB: { ...VB }, e: enemies.slice(0, 3).map(e => [e.x, e.z, e.hp, e.dying]), W: worder.map(id => [id, W[id].t]), laters: laters.length, projs: projs.length }; },
+  get audio() { return actx ? actx.state : 'not created'; },
   get enemies() { return enemies.length; }, get pickups() { return pickups.length; }, get xp() { return xp + "/" + xpNext; },
 };
 function frame() {
